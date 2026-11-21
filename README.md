@@ -1,3 +1,41 @@
+<div align="center">
+<pre>
+            ,dKNWWNKOxo;.
+          ;xKXOdoloOWMWX0d:.
+        .dNNd'     cNMMMMNKOx;.
+       .dWNo       .:oxO000KXKl.
+       .OMNl             .....
+        oNMXd,.
+        .lKWMNKkdollccc:::;;;,'..
+          .;ox0KNWWMMMMMMMMWWWWNK0xl,.
+               ..,;:ccloodxO0KNWMMMMNOc.
+                             .';lxKWMMWk'
+      ..,:ccc:,.                  .oXMMMO
+   .:d0NWWWWWMWXOo,.     .,cc:;,,'..oWMMW
+ .c0WW0xl:;,;cd0NMNO:'..ldl;.    .'.:XMMM
+ xWMKc.        .;OWMWX0xl.         .dWMMK
+ WMWd.           .oKWMMXx,        .dNMMXc
+ NMMK:.      ..:oxo:oOXMMNOdc:;;cxKWMWO;
+ ;kXWN0xooodkOOko;.   .lONMMMMWWMMWKx;.
+   ,okKXXXKOxc'.        .:kKWMMWXOl'
+
+R O B I N S H O O D
+evidence first · operator controlled
+</pre>
+</div>
+
+<p align="center">
+  <a href="pyproject.toml"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white"></a>
+  <a href="#start-here"><img alt="CLI first" src="https://img.shields.io/badge/interface-CLI--first-0B6B53?style=flat-square"></a>
+  <a href="#evidence-layout"><img alt="JSONL evidence" src="https://img.shields.io/badge/evidence-JSONL-D9902F?style=flat-square"></a>
+  <a href="#why-this-version-is-leaner"><img alt="No LLM at runtime" src="https://img.shields.io/badge/runtime-no%20LLM-6F42C1?style=flat-square"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2EA44F?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <code>target → typed module → normalized findings → append-only evidence</code>
+</p>
+
 # Robinshood
 
 Robinshood is a deterministic, evidence-first OSINT toolkit for explicit,
@@ -46,16 +84,63 @@ setup.
 ## Start here
 
 ```bash
+robinshood                              # interactive banner + help
 robinshood --help
 robinshood list
 robinshood run dns_doh example.com
 robinshood run rdap_ip 8.8.8.8 --json
 robinshood sweep example.com
+robinshood options dns_doh              # inspect typed module controls
 robinshood tui                       # requires the `tui` extra
 ```
 
+The interactive welcome uses the `nethydra.txt` artwork from the Obversary
+Studios logo library with a Robinshood text wordmark. It appears only when the
+CLI is opened without a command in a terminal, so redirected output and JSON
+remain clean. Set `ROBINSHOOD_NO_BANNER=1` to suppress it.
+
 The CLI returns `0` on success, `1` when a lookup ran but failed, and `2` for a
 usage or safety precondition error. JSON output is suitable for scripts.
+
+## Module options
+
+Modules expose a small, typed set of upstream controls. Robinshood validates
+these values and records the effective options with the run evidence; arbitrary
+raw flags are deliberately not accepted.
+
+```bash
+robinshood options dns_doh
+robinshood run dns_doh example.com --option record_types=A,MX,CAA
+
+robinshood options gau
+robinshood run gau example.com \
+  --option include_subdomains=true \
+  --option providers=wayback,otx \
+  --option threads=4
+```
+
+For a sweep, scope each override to its module:
+
+```bash
+robinshood sweep example.com \
+  --option dns_doh.record_types=A,AAAA,MX \
+  --option wayback_cdx.limit=200
+```
+
+Direct DNS interrogation uses the optional `dig_dns` module. It is marked active
+because it contacts a selected DNS server and can request a zone transfer:
+
+```bash
+robinshood options dig_dns
+robinshood run dig_dns example.com \
+  --option record_type=AXFR \
+  --option server=ns1.example.com \
+  --yes
+```
+
+Only request AXFR for a zone you own or are explicitly authorized to test. BIND
+`dig` automatically uses TCP for AXFR. Other queries may select
+`transport=tcp`, `transport=tls`, or `transport=https`.
 
 ## Common workflows
 
@@ -127,7 +212,7 @@ By default, cases are written beneath `./cases/<slug>/`:
 cases/<slug>/
 ├── evidence.jsonl   # one receipt per attempted module run
 ├── findings.jsonl   # normalized findings
-├── egress.jsonl     # outbound request/command receipts
+├── contacts.jsonl   # outbound request/command receipts
 └── labels.jsonl     # operator-added labels
 ```
 
@@ -149,6 +234,7 @@ to case files.
 | `crtsh_subdomains` | domain | domain | none |
 | `photon` | domain | email, URL | `photon` binary |
 | `dns_doh` | domain | IP, MX, NS, TXT | none |
+| `dig_dns` | domain | DNS records and zone data | `dig` binary; active confirmation |
 | `ipinfo_geo` | IP | geography, ASN | none |
 | `hackertarget_hostsearch` | IP | domain | none |
 | `httpx_probe` | domain | URL | `httpx` binary |

@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from robinshood.banner import BANNER
 from robinshood.core.api_library import (
     build_api_index,
     load_public_apis_enrichment,
@@ -27,6 +28,12 @@ from robinshood.core.export import (
     preview_export,
 )
 from robinshood.core.http import build_client
+from robinshood.core.options import (
+    ModuleOptionError,
+    option_default_text,
+    parse_module_options,
+    validate_module_options,
+)
 from robinshood.core.registry import Registry, load_registry
 from robinshood.core.runner import run_module
 from robinshood.core.shell import proxy_env, run_command
@@ -103,6 +110,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 2
 
     entry = registry[args.module]
+    try:
+        module_options = parse_module_options(entry.spec, args.option)
+        validate_module_options(entry.spec, module_options, entry.validate_options)
+    except ModuleOptionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if not _confirm_active([entry], args.yes):
+        print("run cancelled.", file=sys.stderr)
+        return 2
+
     case = Case.open(_cases_root(args.cases_dir), args.case or args.target)
 
     proxy = _proxy(args)
@@ -146,6 +164,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         ctx = RunContext(
             http=client,
             env=dict(os.environ),
+            options=module_options,
             timeout=timeout,
             exec=logged_exec(exec_fn, egress_log, proxy),
             cache_stats=stats,
@@ -167,6 +186,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                     "ok": result.ok,
                     "duration_ms": round(result.duration_ms, 1),
                     "error": result.error,
+                    "options": result.options,
                     "cached_responses": result.cached_responses,
                     "findings": [
                         {"type": f.type, "value": f.value, "source_url": f.source_url}
@@ -183,6 +203,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             f"[{status}] {result.module} -> {result.target} "
             f"({result.duration_ms:.0f}ms{cached})"
         )
+        if result.options:
+            print(f"  options: {json.dumps(result.options, sort_keys=True)}")
         if result.error:
             print(f"  error: {result.error}")
         for finding in result.findings:
@@ -193,8 +215,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def _confirm_active(entries, assume_yes: bool) -> bool:
-    """One batched prompt for every non-passive module in the sweep, rather than
-    N prompts in a row. Returns False if the user declines.
+    """One prompt for all non-passive modules in an operation.
 
     A non-TTY without --yes refuses outright instead of blocking on a read that
     will never be answered — a script should fail loudly, not hang."""
@@ -207,7 +228,7 @@ def _confirm_active(entries, assume_yes: bool) -> bool:
     if not sys.stdin.isatty():
         print(
             "error: refusing to run active modules without confirmation. "
-            "Pass --yes to accept, or drop them from the sweep.",
+            "Pass --yes to accept, or omit the active module(s).",
             file=sys.stderr,
         )
         return False
@@ -236,6 +257,12 @@ def cmd_sweep(args: argparse.Namespace) -> int:
         print(f"skipping {entry.spec.name}: needs {', '.join(missing)}", file=sys.stderr)
     if not entries:
         print(f"error: no runnable modules for target {args.target!r}", file=sys.stderr)
+        return 2
+
+    try:
+        sweep_options = _parse_sweep_options(entries, args.option)
+    except ModuleOptionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 2
 
     if not _confirm_active(entries, args.yes):
@@ -285,7 +312,8 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             egress_log=egress_log,
         ) as client:
             yield RunContext(
-                http=client, env=env, timeout=timeout,
+                http=client, env=env, options=sweep_options.get(entry.spec.name, {}),
+                timeout=timeout,
                 exec=logged_exec(exec_fn, egress_log, proxy),
                 cache_stats=stats, egress_log=egress_log,
             )
@@ -326,6 +354,7 @@ def cmd_sweep(args: argparse.Namespace) -> int:
                             "ok": r.ok,
                             "duration_ms": round(r.duration_ms, 1),
                             "error": r.error,
+                            "options": r.options,
                             "cached_responses": r.cached_responses,
                             "findings": [
                                 {"type": f.type, "value": f.value, "source_url": f.source_url}
@@ -358,8 +387,70 @@ def cmd_list(args: argparse.Namespace) -> int:
         for entry in sorted(entries, key=lambda e: e.spec.name):
             needs = [*entry.spec.requires_key, *entry.spec.requires_bin]
             note = f" (requires: {', '.join(needs)})" if needs else ""
+            if entry.spec.options:
+                note += f" (options: {len(entry.spec.options)})"
             print(f"  {entry.spec.name:<22} {entry.spec.consumes:<9} -> {', '.join(entry.spec.produces):<30}{note}")
     return 0
+
+
+def cmd_options(args: argparse.Namespace) -> int:
+    registry = load_registry()
+    if args.module is None:
+        for entry in sorted(registry, key=lambda item: item.spec.name):
+            names = ", ".join(option.name for option in entry.spec.options) or "(none)"
+            print(f"{entry.spec.name:<24} {names}")
+        print("\nUse `robinshood options MODULE` for types, defaults, and choices.")
+        return 0
+    if args.module not in registry:
+        print(f"error: unknown module {args.module!r}", file=sys.stderr)
+        return 2
+    spec = registry[args.module].spec
+    print(f"{spec.name}: {spec.description}")
+    if not spec.options:
+        print("  no configurable module options")
+        return 0
+    for option in spec.options:
+        details = [option.kind, f"default={option_default_text(option)}"]
+        if option.choices:
+            details.append(f"choices={','.join(option.choices)}")
+        if option.minimum is not None:
+            details.append(f"min={option.minimum}")
+        if option.maximum is not None:
+            details.append(f"max={option.maximum}")
+        print(f"  {option.name:<20} {'; '.join(details)}")
+        print(f"    {option.description}")
+    print(f"\nUse: robinshood run {spec.name} TARGET --option NAME=VALUE")
+    return 0
+
+
+def _parse_sweep_options(entries, raw_options: list[str]) -> dict[str, dict]:
+    """Parse MODULE.NAME=VALUE overrides for a multi-module sweep."""
+    selected = {entry.spec.name: entry for entry in entries}
+    grouped: dict[str, list[str]] = {}
+    for raw_option in raw_options:
+        key, separator, value = raw_option.partition("=")
+        module_name, dot, option_name = key.rpartition(".")
+        if not separator or not dot or not module_name or not option_name:
+            raise ModuleOptionError(
+                f"invalid sweep option {raw_option!r}; expected MODULE.NAME=VALUE"
+            )
+        if module_name not in selected:
+            available = ", ".join(sorted(selected))
+            raise ModuleOptionError(
+                f"module {module_name!r} is not selected for this sweep; selected: {available}"
+            )
+        grouped.setdefault(module_name, []).append(f"{option_name}={value}")
+    parsed = {
+        module_name: parse_module_options(selected[module_name].spec, values)
+        for module_name, values in grouped.items()
+    }
+    for module_name, entry in selected.items():
+        validate_module_options(
+            entry.spec,
+            parsed.get(module_name, {}),
+            entry.validate_options,
+        )
+    return parsed
 
 
 def cmd_whoami(args: argparse.Namespace) -> int:
@@ -652,6 +743,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--case", help="Case name to file this run under (default: the target)")
     p_run.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     p_run.add_argument("--timeout", type=float, default=15.0, help="HTTP timeout in seconds")
+    p_run.add_argument(
+        "--option",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="Set a typed module option; repeat as needed (see `robinshood options MODULE`)",
+    )
+    p_run.add_argument(
+        "--yes", action="store_true", help="Approve a module marked as active without prompting"
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_sweep = sub.add_parser(
@@ -672,10 +773,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run modules whose API key or CLI tool is missing, recording the failure",
     )
+    p_sweep.add_argument(
+        "--option",
+        action="append",
+        default=[],
+        metavar="MODULE.NAME=VALUE",
+        help="Set a typed option for one module in the sweep; repeat as needed",
+    )
     p_sweep.set_defaults(func=cmd_sweep)
 
     p_list = sub.add_parser("list", help="List all registered modules")
     p_list.set_defaults(func=cmd_list)
+
+    p_options = sub.add_parser("options", help="Describe the configurable options for a module")
+    p_options.add_argument("module", nargs="?", help="Module name; omit to summarize every module")
+    p_options.set_defaults(func=cmd_options)
 
     p_whoami = sub.add_parser(
         "whoami", help="Show the IP/org robinshood's own traffic would be seen as right now"
@@ -749,6 +861,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
+        # The artwork is an interactive welcome, not protocol output.  Keeping
+        # it off redirected stdout means bare-command help remains scriptable.
+        if sys.stdout.isatty() and not os.environ.get("ROBINSHOOD_NO_BANNER"):
+            print(BANNER)
         parser.print_help()
         return 0
     return args.func(args)

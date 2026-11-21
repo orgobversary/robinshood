@@ -93,6 +93,7 @@ class Case:
             "duration_ms": result.duration_ms,
             "finding_count": len(result.findings),
             "error": result.error,
+            "options": result.options,
             # The audit trail must never present a replayed response as a live
             # lookup. False whenever the cache is off, which is the default.
             "cached": bool(result.cached_responses),

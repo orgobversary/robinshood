@@ -51,6 +51,8 @@ at the shared client boundary and replace `RunContext.exec` for CLI wrappers.
 - Generated exports may only overwrite files marked as Robinshood-generated unless
   the operator explicitly uses the destructive override.
 - The core install stays lightweight. TUI dependencies belong in the `tui` extra.
+- Module controls are declared with typed `ModuleOption` values, validated before
+  execution, and recorded in evidence. Never add arbitrary raw flag passthrough.
 
 ## Adding a module
 
@@ -67,6 +69,7 @@ MODULE = ModuleSpec(
     requires_bin=(),
     passive=True,
     source_url="https://example.invalid/",
+    options=(),
 )
 
 def run(target: str, ctx: RunContext) -> list[Finding]:
@@ -77,6 +80,11 @@ Reuse established finding type names because those names form the pivot graph.
 Declare required environment variables and binaries in `ModuleSpec`. Validate
 flag-shaped CLI targets with `safe_target`, pass argv as a list, and never use
 `shell=True`.
+
+When a module has useful upstream controls, declare bounded choices in
+`ModuleSpec.options` and read them through `ctx.option`. Options that change a
+module from passive to active require a separate active module or an equally
+explicit safety boundary; never let an option silently weaken `passive=True`.
 
 Add offline tests and update the module tables in `README.md` and the operator
 documentation. Run the complete test suite and `robinshood list` before handoff.

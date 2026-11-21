@@ -13,6 +13,28 @@ def test_no_command_prints_help_instead_of_launching_tui(capsys):
     assert output.err == ""
 
 
+def test_no_command_prints_brand_banner_in_interactive_terminal(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+
+    assert cli.main([]) == 0
+
+    output = capsys.readouterr()
+    assert "█▀█ █▀█ █▄▄" in output.out
+    assert "evidence first · operator controlled" in output.out
+    assert "usage: robinshood" in output.out
+
+
+def test_banner_can_be_disabled(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setenv("ROBINSHOOD_NO_BANNER", "1")
+
+    assert cli.main([]) == 0
+
+    output = capsys.readouterr()
+    assert "█▀█ █▀█ █▄▄" not in output.out
+    assert "usage: robinshood" in output.out
+
+
 def test_tui_command_explains_how_to_install_optional_dependency(monkeypatch, capsys):
     real_import = builtins.__import__
 

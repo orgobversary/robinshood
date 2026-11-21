@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from robinshood.core.shell import safe_target
-from robinshood.core.types import Finding, ModuleSpec, RunContext
+from robinshood.core.types import Finding, ModuleOption, ModuleSpec, RunContext
 
 MODULE = ModuleSpec(
     name="gau",
@@ -15,14 +15,43 @@ MODULE = ModuleSpec(
     requires_bin=("gau",),
     passive=True,
     source_url="https://github.com/lc/gau",
+    options=(
+        ModuleOption(
+            name="include_subdomains",
+            description="Include URLs belonging to subdomains of the target.",
+            kind="bool",
+            default=False,
+        ),
+        ModuleOption(
+            name="providers",
+            description="Comma-separated upstream archives to query; unset uses gau's defaults.",
+            kind="choice_list",
+            choices=("wayback", "commoncrawl", "otx", "urlscan"),
+        ),
+        ModuleOption(
+            name="threads",
+            description="Number of gau workers; unset uses gau's default.",
+            kind="int",
+            minimum=1,
+            maximum=50,
+        ),
+    ),
 )
 
 
 def run(target: str, ctx: RunContext) -> list[Finding]:
     domain = safe_target(target)
-    # No -subs: stays scoped to this domain, matching wayback_cdx's
-    # {target}/* scoping rather than exploding into every subdomain gau knows.
-    stdout = ctx.exec(["gau", domain], timeout=600.0)
+    argv = ["gau"]
+    if ctx.option("include_subdomains", False):
+        argv.append("--subs")
+    providers = ctx.option("providers")
+    if providers:
+        argv.extend(["--providers", ",".join(providers)])
+    threads = ctx.option("threads")
+    if threads is not None:
+        argv.extend(["--threads", str(threads)])
+    argv.append(domain)
+    stdout = ctx.exec(argv, timeout=600.0)
     seen: set[str] = set()
     findings: list[Finding] = []
     for line in stdout.splitlines():

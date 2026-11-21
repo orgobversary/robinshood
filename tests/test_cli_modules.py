@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,6 +89,21 @@ def test_safe_target_allows_normal_values():
 def test_missing_binary_raises_actionable_error():
     with pytest.raises(RuntimeError, match="not on PATH"):
         run_command(["robinshood-definitely-not-a-real-binary", "x"])
+
+
+def test_failed_command_uses_stdout_diagnostic_when_stderr_is_empty(monkeypatch):
+    monkeypatch.setattr("robinshood.core.shell.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "robinshood.core.shell.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=9,
+            stdout=";; no servers could be reached\n",
+            stderr="",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="no servers could be reached"):
+        run_command(["dig", "example.com"])
 
 
 def test_modules_refuse_flag_like_targets(mock_ctx):

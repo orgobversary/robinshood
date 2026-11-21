@@ -13,6 +13,7 @@ from robinshood.core.types import ModuleSpec
 class RegisteredModule:
     spec: ModuleSpec
     run: callable
+    validate_options: callable | None = None
 
 
 class Registry:
@@ -67,5 +68,12 @@ def load_registry() -> Registry:
                 f"{dotted_name}: duplicate module name {spec.name!r} "
                 f"(already registered by another module file)"
             )
-        entries[spec.name] = RegisteredModule(spec=spec, run=mod.run)
+        validator = getattr(mod, "validate_options", None)
+        if validator is not None and not callable(validator):
+            raise TypeError(f"{dotted_name}: validate_options must be callable")
+        entries[spec.name] = RegisteredModule(
+            spec=spec,
+            run=mod.run,
+            validate_options=validator,
+        )
     return Registry(entries)

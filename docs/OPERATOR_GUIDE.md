@@ -23,6 +23,46 @@ Finding types form a static pivot graph. A module that produces `ip`, for
 example, can lead to modules that consume `ip`. Suggestions are descriptive;
 Robinshood never follows them automatically.
 
+## Typed module options
+
+Inspect a module before changing its defaults:
+
+```bash
+robinshood options dns_doh
+robinshood run dns_doh example.com --option record_types=A,MX
+```
+
+Options are declared by the module as booleans, bounded integers, strings, or
+fixed choices. The CLI validates them before any case directory or network
+client is created. Effective defaults and overrides are stored in
+`evidence.jsonl`. Robinshood does not forward unvalidated raw command-line flags.
+
+Sweep overrides use `MODULE.NAME=VALUE` so one module cannot accidentally receive
+another module's controls:
+
+```bash
+robinshood sweep example.com --option wayback_cdx.limit=200
+```
+
+### Direct DNS and AXFR
+
+`dns_doh` queries a public DNS-over-HTTPS resolver and can select record types.
+`dig_dns` invokes the local BIND `dig` binary for direct server queries:
+
+```bash
+robinshood run dig_dns example.com \
+  --option record_type=AXFR \
+  --option server=ns1.example.com \
+  --yes
+```
+
+The direct module is always classified active. AXFR asks the selected server for
+zone data and must only be used with explicit authorization. AXFR uses TCP
+automatically. Other record types may explicitly use `transport=tcp`,
+`transport=tls`, or `transport=https`. Robinshood disables personal `.digrc`
+defaults for this wrapper so the recorded option set maps to a predictable
+invocation.
+
 ## Passive and active work
 
 Most modules query third-party datasets. A module with `passive=False` may send
@@ -57,9 +97,9 @@ module-name order. This is what makes repeated exports reproducible.
 Robinshood appends JSON Lines records rather than maintaining an opaque database.
 The files can be inspected with any text editor or tools such as `jq`.
 
-- `evidence.jsonl` records module, target, duration, status, errors, and cache use.
+- `evidence.jsonl` records module, target, options, duration, status, errors, and cache use.
 - `findings.jsonl` records normalized values, confidence, module, and source.
-- `egress.jsonl` records outbound HTTP requests and wrapped command executions.
+- `contacts.jsonl` records outbound HTTP requests and wrapped command executions.
 - `labels.jsonl` records operator-supplied labels.
 
 Use `--case` to group multiple targets under an engagement name. Use
@@ -133,6 +173,10 @@ interactive screen stays focused.
 
 Module discovery is automatic. A module exposes one `MODULE` specification and
 one `run(target, ctx)` function under `src/robinshood/modules/<category>/`.
+
+Declare supported controls with `ModuleOption` entries on `ModuleSpec.options`
+and read them through `ctx.option`. Translate each value into a fixed API
+parameter or argv element; never provide a raw-flags escape hatch.
 
 Use `ctx.http` for APIs and `ctx.exec` for local programs. Never construct an
 independent network client or invoke `subprocess` directly inside a module. The

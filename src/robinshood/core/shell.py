@@ -61,7 +61,16 @@ def run_command(
 
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip().splitlines()
-        detail = stderr[-1] if stderr else f"exit code {proc.returncode}"
+        stdout = (proc.stdout or "").strip().splitlines()
+        # Some tools, including BIND dig, write transport diagnostics to stdout
+        # even when they exit nonzero. Preserve the most useful final line.
+        detail = (
+            stderr[-1]
+            if stderr
+            else stdout[-1]
+            if stdout
+            else f"exit code {proc.returncode}"
+        )
         raise RuntimeError(f"{argv[0]} failed: {detail}")
 
     return proc.stdout

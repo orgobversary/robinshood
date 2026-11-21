@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
+from robinshood.core.options import effective_module_options, jsonable_options
 from robinshood.core.registry import RegisteredModule
 from robinshood.core.types import ModuleResult, RunContext, utc_now
 
@@ -24,8 +26,12 @@ def run_module(entry: RegisteredModule, target: str, ctx: RunContext) -> ModuleR
         # construction time — needed because one client (and one egress log)
         # can outlive many separate run_module() calls in the TUI.
         ctx.egress_log.current_module = entry.spec.name
+    effective_options = effective_module_options(entry.spec, ctx.options)
+    module_ctx = replace(ctx, options=effective_options)
     try:
-        findings = entry.run(target, ctx)
+        if entry.validate_options is not None:
+            entry.validate_options(effective_options)
+        findings = entry.run(target, module_ctx)
     except Exception as exc:  # noqa: BLE001 - module failures must never crash the runner
         error = f"{type(exc).__name__}: {exc}"
     duration_ms = (time.monotonic() - t0) * 1000
@@ -49,6 +55,7 @@ def run_module(entry: RegisteredModule, target: str, ctx: RunContext) -> ModuleR
         duration_ms=duration_ms,
         findings=findings,
         error=error,
+        options=jsonable_options(effective_options),
         cached_responses=cached_responses,
         max_cache_age_s=max_cache_age_s,
         contacts=contacts,

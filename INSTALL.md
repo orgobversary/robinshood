@@ -37,14 +37,17 @@ The test suite is offline and does not require API keys or external binaries.
 
 ## Optional local tools
 
-Seven modules wrap local programs: `sherlock`, `maigret`, `subfinder`, `amass`,
-`gau`, ProjectDiscovery `httpx`, and `photon`. Install only the tools needed for
-your authorized workflow:
+Eight modules wrap local programs: `dig`, `sherlock`, `maigret`, `subfinder`,
+`amass`, `gau`, ProjectDiscovery `httpx`, and `photon`. Install only the tools
+needed for your authorized workflow. The helper manages the seven user-local
+tools; install BIND `dig` through the package manager inside your development
+container or VM (`bind-utils` on Fedora-family systems, `dnsutils` on Debian-family
+systems).
 
 ```bash
 ./scripts/install-cli-tools.sh             # all supported tools
 ./scripts/install-cli-tools.sh subfinder   # one tool
-command -v sherlock maigret subfinder amass gau httpx photon
+command -v dig sherlock maigret subfinder amass gau httpx photon
 ```
 
 The installer targets the user environment, not system directories. Review the
